@@ -1,0 +1,9 @@
+SUBROUTINE Jacobi1iteration
+	IMPLICIT NONE
+	REAL(KIND=8), ALLOCATABLE	::	x(:), xold(:)
+	INTEGER						::	
+	
+
+
+
+END SUBROUTINE
