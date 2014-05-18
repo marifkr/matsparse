@@ -14,7 +14,7 @@ SUBROUTINE scanfromfile
 	!// Test if the file was opened correctly
 	IF (res/= 0) THEN
 		!// Print an error message
-		PRINT *, 'Error in opening the file, status:', res
+		PRINT *, 'Error in opening b-file, status:', res
 		!// Stop the program
 		STOP
 	END IF
@@ -22,7 +22,7 @@ SUBROUTINE scanfromfile
 	READ(UNIT=lun, FMT='(A)'), line
 	IF(res/=0) THEN
 		!// Print an error message
-		PRINT *, 'Error in reading file, status:', res
+		PRINT *, 'Error in reading n from b-file, status:', res
 		!// Close the file and stop the program
 		CLOSE(UNIT=lun)
 		STOP
@@ -41,7 +41,7 @@ SUBROUTINE scanfromfile
 	DO i = 1,n
 		READ(UNIT=lun, FMT='(A)',IOSTAT=res), line
 		IF(res/=0) THEN
-			PRINT*, 'Error in reading file, status:', res
+			PRINT*, 'Error in reading b from b-file, status:', res
 			!// Close the file and stop the program
 			CLOSE(UNIT=lun)
 			STOP
@@ -63,7 +63,7 @@ SUBROUTINE scanfromfile
 	!// Test if the file was opened correctly
 	IF (res/= 0) THEN
 		!// Print an error message
-		PRINT *, 'Error in opening the file, status:', res
+		PRINT *, 'Error in opening A-file, status:', res
 		!// Stop the program
 		STOP
 	END IF
@@ -72,7 +72,7 @@ SUBROUTINE scanfromfile
 	READ(UNIT=lyn, FMT='(A)'), line
 	IF(res/=0) THEN
 		!// Print an error message
-		PRINT *, 'Error in reading file, status:', res
+		PRINT *, 'Error in reading n from A-file, status:', res
 		!// Close the file and stop the program
 		CLOSE(UNIT=lyn)
 		STOP
@@ -85,7 +85,7 @@ SUBROUTINE scanfromfile
 	READ(UNIT=lyn, FMT='(A)'), line
 	IF(res/=0) THEN
 		!// Print an error message
-		PRINT *, 'Error in reading file, status:', res
+		PRINT *, 'Error in reading nnz from A-file, status:', res
 		!// Close the file and stop the program
 		CLOSE(UNIT=lyn)
 		STOP
@@ -109,7 +109,7 @@ SUBROUTINE scanfromfile
 	DO i = 1,nnz
 		READ(UNIT=lyn, FMT='(A)',IOSTAT=res), line
 		IF(res/=0) THEN
-			PRINT*, 'Error in reading file, status:', res
+			PRINT*, 'Error in reading A, i and j from A-file, status:', res
 			!// Close the file and stop the program
 			CLOSE(UNIT=lun)
 			STOP
@@ -141,7 +141,7 @@ SUBROUTINE scanfromfile
 	CLOSE(UNIT=lyn)
 	!// Print parts of A to check that reading has been done correctly
 !	PRINT*, 'A=', A(1:10)
-	PRINT*, 'irow=', irow(:)
+!	PRINT*, 'irow=', irow(1:10)
 !	PRINT*, 'jcol=', jcol(1:10)	
 !// Print confirmation that program ran successfully
 PRINT*, 'scanfromfile ferdig'

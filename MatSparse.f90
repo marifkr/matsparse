@@ -12,18 +12,20 @@
 MODULE MatSparse
 	IMPLICIT NONE
 		TYPE	::	matrix
-			CHARACTER(LEN=80)		:: Avector, bvector!, xvector !filenames
-			REAL(KIND=8), POINTER	:: A(:), b(:), x(:), xnew(:), xold(:)
-			INTEGER, POINTER		:: irow(:)
-			INTEGER, POINTER		:: jcol(:)
-			INTEGER					:: n
-			INTEGER					:: nnz
+			CHARACTER(LEN=80)		::	Avector, bvector, xvector !filenames
+			REAL(KIND=8), POINTER	::	A(:) => null(), b(:) => null()
+			REAL(KIND=8), POINTER	::	xoldJac(:) => null(), xnewJac(:) => null()
+			REAL(KIND=8), POINTER	::	xoldSOR(:) => null(), xnewSOR(:) => null()
+			REAL					::	omega
+			INTEGER, POINTER		::	irow(:) => null(), jcol(:) => null()
+			INTEGER					::	n = 0
+			INTEGER					::	nnz = 0
 			!// More variables here for x-vectors and other I might need
 		CONTAINS
 			PROCEDURE				:: scan => scanfromfile
 !			PROCEDURE				:: dump => dumptofile
-!			PROCEDURE				:: Jacobi1_it => Jacobi1iteration
-!			PROCEDURE				:: SOR1_it => SOR1iteration
+			PROCEDURE				:: Jacobi1_it => Jacobi1iteration
+			PROCEDURE				:: SOR1_it => SOR1iteration
 !			PROCEDURE				:: Jacobi => Jacobi_it
 !			PROCEDURE				:: SOR => SOR_it
 		END TYPE matrix
@@ -38,178 +40,280 @@ MODULE MatSparse
 			!//
 			!/////////////////////////////////////////////////////////////
 			IMPLICIT NONE
-			CLASS(matrix)						::	mat1
-				CHARACTER(LEN=80), INTENT(IN)	::	Avector, bvector!, xvector !filenames
-				CHARACTER(LEN=80)				::	line
-				INTEGER, PARAMETER				::	lun = 10, lyn = 11
-				INTEGER							::	i, j, k, l, m, n, nnz, res, rowval, rowvalold
-				
-				!// Confirm entry to module
-				PRINT*, 'Got to module!'
-			!---------------------------------------------------------------------------
-				!// First b
-				
-				!// Open file containing the b-vector
-				OPEN(UNIT=lun, FILE=bvector, FORM='FORMATTED', IOSTAT=res)
-				!// Test if the file was opened correctly
-				IF (res/= 0) THEN
-					!// Print an error message
-					PRINT *, 'Error in opening the file, status:', res
-					!// Stop the program
-					STOP
-				END IF
-				!// Read n from the first line in the file
-				READ(UNIT=lun, FMT='(A)'), line
+			CLASS(matrix)					::	mat1
+			CHARACTER(LEN=80), INTENT(IN)	::	Avector, bvector !filenames
+			CHARACTER(LEN=80)				::	line
+			INTEGER, PARAMETER				::	lun = 10, lyn = 11
+			INTEGER							::	i, j, k, l, m, n, nnz, res, rowval, rowvalold
+			
+			!// Confirm entry to module
+			PRINT*, 'Got to module!'
+		!---------------------------------------------------------------------------
+			!// First b
+			
+			!// Open file containing the b-vector
+			OPEN(UNIT=lun, FILE=bvector, FORM='FORMATTED', IOSTAT=res)
+			!// Test if the file was opened correctly
+			IF (res/= 0) THEN
+				!// Print an error message
+				PRINT *, 'Error in opening the file, status:', res
+				!// Stop the program
+				STOP
+			END IF
+			!// Read n from the first line in the file
+			READ(UNIT=lun, FMT='(A)'), line
+			IF(res/=0) THEN
+				!// Print an error message
+				PRINT *, 'Error in reading file, status:', res
+				!// Close the file and stop the program
+				CLOSE(UNIT=lun)
+				STOP
+			END IF
+			!// Find position of :
+			j=INDEX(line,':')
+			!// Read everything after :
+			READ(line(j+1:),*), mat1%n
+			!// Print n
+		!	PRINT*, 'n=', mat1%n
+
+			ALLOCATE(mat1%b(mat1%n))
+			! SHOULD check if it worked!!!
+
+			!// Read the data in to the b-vector
+			DO i = 1,mat1%n
+				READ(UNIT=lun, FMT='(A)',IOSTAT=res), line
 				IF(res/=0) THEN
-					!// Print an error message
-					PRINT *, 'Error in reading file, status:', res
+					PRINT*, 'Error in reading file, status:', res
 					!// Close the file and stop the program
 					CLOSE(UNIT=lun)
 					STOP
 				END IF
-				!// Find position of :
-				j=INDEX(line,':')
-				!// Read everything after :
-				READ(line(j+1:),*), mat1%n
-				!// Print n
-			!	PRINT*, 'n=', mat1%n
-	
-				ALLOCATE(mat1%b(n))
-				! SHOULD check if it worked!!!
-	
-				!// Read the data in to the b-vector
-				DO i = 1,mat1%n
-					READ(UNIT=lun, FMT='(A)',IOSTAT=res), line
-					IF(res/=0) THEN
-						PRINT*, 'Error in reading file, status:', res
-						!// Close the file and stop the program
-						CLOSE(UNIT=lun)
-						STOP
-					END IF
-					!// Find position of =
-					j=INDEX(line,'=')
-					!// Read everything after =, and place in b-vector
-					READ(line(j+1:),*), mat1%b(i)
-				END DO
-				!// Done reading file containing b-vector - close the file
-				CLOSE(UNIT=lun)
-				!// Print parts of b to check that reading has been done correctly
-			!	PRINT*, 'b=', mat1%b(1:10)
-	
-			! -----------------------------------------------------------------------------
-				!// Now A
+				!// Find position of =
+				j=INDEX(line,'=')
+				!// Read everything after =, and place in b-vector
+				READ(line(j+1:),*), mat1%b(i)
+			END DO
+			!// Done reading file containing b-vector - close the file
+			CLOSE(UNIT=lun)
+			!// Print parts of b to check that reading has been done correctly
+		!	PRINT*, 'b=', mat1%b(1:10)
 
-				!// Open file containing the sparse A-matrix
-				OPEN(UNIT=lyn, FILE=Avector, FORM='FORMATTED', IOSTAT=res)
-				!// Test if the file was opened correctly
-				IF (res/= 0) THEN
-					!// Print an error message
-					PRINT *, 'Error in opening the file, status:', res
-					!// Stop the program
-					STOP
-				END IF
-	
-				!// Read n and nnz from the first two lines in the file
-				READ(UNIT=lyn, FMT='(A)'), line
-				IF(res/=0) THEN
-					!// Print an error message
-					PRINT *, 'Error in reading file, status:', res
-					!// Close the file and stop the program
-					CLOSE(UNIT=lyn)
-					STOP
-				END IF
-				!// Find position of :
-				j=INDEX(line,':')
-				!// Read everything after :
-				READ(line(j+1:),*), mat1%n
-	
-				READ(UNIT=lyn, FMT='(A)'), line
-				IF(res/=0) THEN
-					!// Print an error message
-					PRINT *, 'Error in reading file, status:', res
-					!// Close the file and stop the program
-					CLOSE(UNIT=lyn)
-					STOP
-				END IF
-				!// Find position of :
-				j=INDEX(line,':')
-				!// Read everything after :
-				READ(line(j+1:),*), mat1%nnz
-				!// Print number of rows, n and number of non-zero values in matrix A, nnz
-			!	PRINT*, 'n=', ',', mat1%n, 'nnz=', mat1%nnz
-	
-				ALLOCATE(mat1%A(mat1%nnz))
-				! SHOULD check if it worked!!!
-				ALLOCATE(mat1%irow(mat1%n+1))
-				ALLOCATE(mat1%jcol(mat1%nnz))
+		! -----------------------------------------------------------------------------
+			!// Now A
 
-	
-				rowvalold = 0
-	
-				!// Read the data in to the A-vector
-				DO i = 1,mat1%nnz
-					READ(UNIT=lyn, FMT='(A)',IOSTAT=res), line
-					IF(res/=0) THEN
-						PRINT*, 'Error in reading file, status:', res
-						!// Close the file and stop the program
-						CLOSE(UNIT=lun)
-						STOP
-					END IF
-					!// Find position of =
-					j=INDEX(line,'=')
-					!// Read everything after =, and place in b-vector
-					READ(line(j+1:),*), mat1%A(i)
-		
-					!// Now make jcol and irow with help from (row,column)
-					
-					!// Find positions of '(' and ',' and')'
-					k=INDEX(line,',')
-					l=INDEX(line,'(')
-					m=INDEX(line,')')
-		
-					!// Read row and then column
-					READ(line(l+1:k-1),*), rowval
-					READ(line(k+1:m-1),*), mat1%jcol(i)
-		
-					!// Place number of value on new row in irow
-					IF (rowval>rowvalold) THEN
-						mat1%irow(rowval) = i
-					END IF
-					rowvalold = rowval	
-				END DO
-	
-				mat1%irow(mat1%n+1) = mat1%nnz+1
-	
-				!// Done reading file containing A-vector - close the file
+			!// Open file containing the sparse A-matrix
+			OPEN(UNIT=lyn, FILE=Avector, FORM='FORMATTED', IOSTAT=res)
+			!// Test if the file was opened correctly
+			IF (res/= 0) THEN
+				!// Print an error message
+				PRINT *, 'Error in opening the file, status:', res
+				!// Stop the program
+				STOP
+			END IF
+
+			!// Read n and nnz from the first two lines in the file
+			READ(UNIT=lyn, FMT='(A)'), line
+			IF(res/=0) THEN
+				!// Print an error message
+				PRINT *, 'Error in reading file, status:', res
+				!// Close the file and stop the program
 				CLOSE(UNIT=lyn)
-				!// Print parts of A, irow and jcol to check that reading has been done correctly
-			!	PRINT*, 'A=', mat1%A(1:10)
-			!	PRINT*, 'irow=', mat1%irow(1:10)
-			!	PRINT*, 'jcol=', mat1%jcol(1:10)	
-				!// Print confirmation that program ran successfully
-				PRINT*, 'scanfromfile completed'
+				STOP
+			END IF
+			!// Find position of :
+			j=INDEX(line,':')
+			!// Read everything after :
+			READ(line(j+1:),*), mat1%n
 
+			READ(UNIT=lyn, FMT='(A)'), line
+			IF(res/=0) THEN
+				!// Print an error message
+				PRINT *, 'Error in reading file, status:', res
+				!// Close the file and stop the program
+				CLOSE(UNIT=lyn)
+				STOP
+			END IF
+			!// Find position of :
+			j=INDEX(line,':')
+			!// Read everything after :
+			READ(line(j+1:),*), mat1%nnz
+			!// Print number of rows, n and number of non-zero values in matrix A, nnz
+		!	PRINT*, 'n=', ',', mat1%n, 'nnz=', mat1%nnz
+
+			!// Allocating space for A, irow and jcol
+			ALLOCATE(mat1%A(mat1%nnz))
+			! SHOULD check if it worked!!!
+			ALLOCATE(mat1%irow(mat1%n+1))
+			ALLOCATE(mat1%jcol(mat1%nnz))
+
+
+			rowvalold = 0
+
+			!// Read the data in to the A-vector
+			DO i = 1,mat1%nnz
+				READ(UNIT=lyn, FMT='(A)',IOSTAT=res), line
+				IF(res/=0) THEN
+					PRINT*, 'Error in reading file, status:', res
+					!// Close the file and stop the program
+					CLOSE(UNIT=lun)
+					STOP
+				END IF
+				!// Find position of =
+				j=INDEX(line,'=')
+				!// Read everything after =, and place in b-vector
+				READ(line(j+1:),*), mat1%A(i)
+	
+				!// Now make jcol and irow with help from (row,column)
+				
+				!// Find positions of '(' and ',' and')'
+				k=INDEX(line,',')
+				l=INDEX(line,'(')
+				m=INDEX(line,')')
+	
+				!// Read row and then column
+				READ(line(l+1:k-1),*), rowval
+				READ(line(k+1:m-1),*), mat1%jcol(i)
+	
+				!// Place number of value on new row in irow
+				IF (rowval>rowvalold) THEN
+					mat1%irow(rowval) = i
+				END IF
+				rowvalold = rowval	
+			END DO
+			
+			!// Set the last value of irow
+			mat1%irow(mat1%n+1) = mat1%nnz+1
+
+			!// Done reading file containing A-vector - close the file
+			CLOSE(UNIT=lyn)
+			!// Print parts of A, irow and jcol to check that reading has been done correctly
+		!	PRINT*, 'A=', mat1%A(1:10)
+		!	PRINT*, 'irow=', mat1%irow(1:10)
+		!	PRINT*, 'jcol=', mat1%jcol(1:10)	
+			!// Print confirmation that program ran successfully
+			PRINT*, 'scanfromfile completed'
+				
+			!// Allocate space for xold and xnew for both Jacobi and SOR iterations
+			ALLOCATE(mat1%xoldJac(mat1%n));mat1%xoldJac = 0.0
+			ALLOCATE(mat1%xnewJac(mat1%n));mat1%xnewJac = 0.0
+			ALLOCATE(mat1%xoldSOR(mat1%n));mat1%xoldSOR = 0.0
+			ALLOCATE(mat1%xnewSOR(mat1%n));mat1%xnewSOR = 0.0
+			
 		END SUBROUTINE scanfromfile
-		!// More subroutine declarations here
 
 ! --------------------------- NEW SUBROUTINE----------------------------------------------
-!		SUBROUTINE Jacobi1iteration
+		SUBROUTINE Jacobi1iteration(mat1)
 			!//////////////////////////////////////////////////////////
 			!//
 			!// Jacobi1iteration performs a single iteration with
 			!// the Jacobi method.
+			!// To be used for more iterations by Jacobi_it subroutine.
+			!// Producing the resulting x-vector, xoldJac.
 			!//
 			!//////////////////////////////////////////////////////////
-!			IMPLICIT NONE
-!			CLASS(matrix)	::	mat1
-!				INTEGER						::	i, j, k
-				
-!				mat1%xold() = 0
-!				DO i = mat1%n
-					
-
-
-!				PRINT*, 'Jacobi1iteration completed'
-!		END SUBROUTINE Jacobi1iteration
+			IMPLICIT NONE
+			CLASS(matrix)			::	mat1
+			REAL					::	sum, diagA = 0
+			INTEGER					::	i, j, k, l
+			
+			DO i = 1,mat1%n
+			!// Initialize sum to zero
+			sum = 0
+				DO k = mat1%irow(i),mat1%irow(i+1)-1
+					j = mat1%jcol(k)
+					!// Avoiding the diagonal element in the sum
+					IF (i/=j) THEN
+						sum = sum + mat1%A(k)*mat1%xoldJac(j)
+					END IF
+					!// Making a(i,i)
+					IF (i==j) THEN
+						diagA = mat1%A(k)
+					END IF
+				END DO
+				mat1%xnewJac(i) = (1/diagA)*(mat1%b(i) - sum)
+			END DO
+			
+			!// Make the new x-vector the old one in case of a new iteration
+			DO l = 1,mat1%n
+				mat1%xoldJac(l) = mat1%xnewJac(l)
+			END DO
+		
+			PRINT*, 'xJac=', mat1%xoldJac(1:10)
+			PRINT*, 'Jacobi1iteration completed'
+		END SUBROUTINE Jacobi1iteration
 ! --------------------------- NEW SUBROUTINE ---------------------------------------------
+		SUBROUTINE SOR1iteration(mat1, omega)
+			!/////////////////////////////////////////////////////////////////
+			!//
+			!// SOR1iteration performs a single iteration with the successive
+			!// over relaxation method, containing the Gauss-Seidel method.
+			!// To be used for more iterations by SOR_it and produces the
+			!// resulting x-vector, xoldSOR.
+			!//
+			!/////////////////////////////////////////////////////////////////
+			IMPLICIT NONE
+			CLASS(matrix)			::	mat1
+			REAL, INTENT(IN)		::	omega
+			REAL					::	diagA = 0, sum1, sum2
+			INTEGER					::	i, j, k, l
+			
+			DO i = 1,mat1%n
+			!// Initialize sums to zero
+			sum1 = 0
+			sum2 = 0
+				DO k = mat1%irow(i),mat1%irow(i+1)-1
+					j = mat1%jcol(k)
+					!// Avoiding the diagonal element in the sums
+					IF (i>j) THEN
+						sum1 = sum1 + mat1%A(k)*mat1%xnewSOR(j)
+					END IF
+					IF (i<j) THEN
+						sum2 = sum2 + mat1%A(k)*mat1%xoldSOR(j)
+					END IF
+					!// Making a(i,i)
+					IF (i==j) THEN
+						diagA = mat1%A(k)
+					END IF
+				END DO
+				mat1%xnewSOR(i) = (1/diagA)*(mat1%b(i) - sum1 - sum2)
+			END DO
+
+			!// Make the new x-vector the old one in case of a new iteration
+			!// and make it go from being Gauss-Seidel to SOR
+			DO l = 1,mat1%n
+				mat1%xoldSOR(l) = omega*mat1%xnewSOR(l) + (1-omega)*mat1%xoldSOR(l)
+			END DO
+			
+			PRINT*, 'xSOR=', mat1%xoldSOR(1:10)
+			PRINT*, 'SOR1iteration completed'
+		END SUBROUTINE SOR1iteration
+! --------------------------- NEW SUBROUTINE ---------------------------------------------
+!		SUBROUTINE Jacobi_it(mat1, maxit, tol)
+			!/////////////////
+			!//
+			
+
+!		END SUBROUTINE Jacobi_it
+! --------------------------- NEW SUBROUTINE ---------------------------------------------
+!		SUBROUTINE SOR_it(mat1, maxiter)
+			!////////////////////////////////////////////////////////////////
+			!//
+			!//
+			
+!		END SUBROUTINE SOR_it
+! --------------------------- NEW SUBROUTINE ---------------------------------------------
+		SUBROUTINE dumptofile(mat1, xvector)
+			!//////////////////////////////////////////////////////////////////////
+			!//
+			!// dumptofile writes the xvectors to a file with appropriate headers.
+			!//
+			!//////////////////////////////////////////////////////////////////////
+			CLASS(matrix)			::	mat1
+			CHARACTER, INTENT(IN)	::	xvector	!filename
+			INTEGER					::	i, j, k, l
+			
+			
+						
+		END SUBROUTINE dumptofile
 END MODULE MatSparse
+

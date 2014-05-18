@@ -17,7 +17,7 @@ PROG = kjor
 # The object files
 OBJECTS = MatSparse.o main.o
 #
-main : $(OBJECTS)
+kjor : $(OBJECTS)
 	$(FC) $(FFLAGS) -o $@ $(OBJECTS)
 	./kjor A-ascii.txt b-vector-ascii.txt
 MatSparse.o : MatSparse.f90
