@@ -36,15 +36,13 @@ PROGRAM main
 	READ(*,*) omega
 	
 	CALL X1%scan(Avector, bvector)
+		
+	CALL X1%Jacobi(tol, maxit)
 	
-	CALL X1%Jacobi1_it()
-	
-!	CALL X1%Jacobi(tol, maxit)
-	
-	CALL X1%SOR1_it(omega)
-
-!	CALL X1%SOR(maxiter)
+	CALL X1%SOR(tol, omega, maxiter)
 	
 	CALL X1%dump(xvector, tol, omega, maxit, maxiter)
-
+	
+	PRINT*, 'Whoop! hele gjennom!'
+	STOP
 END PROGRAM main

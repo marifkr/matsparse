@@ -13,24 +13,21 @@
 MODULE MatSparse
 	IMPLICIT NONE
 		TYPE	::	matrix
-!			CHARACTER(LEN=80)		::	Avector, bvector, xvector !filenames
 			REAL(KIND=8), POINTER	::	A(:) => null(), b(:) => null()
 			REAL(KIND=8), POINTER	::	xoldJac(:) => null(), xnewJac(:) => null()
 			REAL(KIND=8), POINTER	::	xoldSOR(:) => null(), xnewSOR(:) => null()
 			REAL					::	tol, omega
 			INTEGER, POINTER		::	irow(:) => null(), jcol(:) => null()
-			INTEGER					::	n = 0, nnz = 0
+			INTEGER					::	itsJac = 0, itsSOR = 0, n = 0, nnz = 0
 			INTEGER					::	maxit, maxiter
-			!// More variables here for x-vectors and other I might need
 		CONTAINS
 			PROCEDURE				:: scan => scanfromfile
 			PROCEDURE				:: dump => dumptofile
 			PROCEDURE				:: Jacobi1_it => Jacobi1iteration
 			PROCEDURE				:: SOR1_it => SOR1iteration
-!			PROCEDURE				:: Jacobi => Jacobi_it
-!			PROCEDURE				:: SOR => SOR_it
+			PROCEDURE				:: Jacobi => Jacobi_it
+			PROCEDURE				:: SOR => SOR_it
 		END TYPE matrix
-		!// More global variables here
 	CONTAINS
 		SUBROUTINE scanfromfile(mat1,Avector,bvector)
 			!/////////////////////////////////////////////////////////////
@@ -38,6 +35,8 @@ MODULE MatSparse
 			!// scanfromfile reads files assigned in the main program
 			!// to find n, nnz, A and b. The routine also provides irow
 			!// and jcol to find positions of non-zero values in A.
+			!// Space for xvectors needed in Jacobi and SOR iterations
+			!// is allocated.
 			!//
 			!/////////////////////////////////////////////////////////////
 			IMPLICIT NONE
@@ -45,8 +44,9 @@ MODULE MatSparse
 			CHARACTER(LEN=80), INTENT(IN)	::	Avector, bvector !filenames
 			CHARACTER(LEN=80)				::	line
 			INTEGER, PARAMETER				::	lun = 10, lyn = 11
-			INTEGER							::	i, j, k, l, m, n, nnz, res, rowval, rowvalold
-			
+			INTEGER							::	i, j, k, l, m, n, nnz, res 
+			INTEGER							::	rowval = 0, rowvalold = 0
+			!-----------------------------------------------------------------------------
 			!// Confirm entry to module
 			PRINT*, 'Got to module!'
 		!---------------------------------------------------------------------------
@@ -57,7 +57,7 @@ MODULE MatSparse
 			!// Test if the file was opened correctly
 			IF (res/= 0) THEN
 				!// Print an error message
-				PRINT *, 'Error in opening the b-vector file, status:', res
+				PRINT*, 'Error in opening the b-vector file, status:', res
 				!// Stop the program
 				STOP
 			END IF
@@ -65,7 +65,7 @@ MODULE MatSparse
 			READ(UNIT=lun, FMT='(A)'), line
 			IF(res/=0) THEN
 				!// Print an error message
-				PRINT *, 'Error in reading file, status:', res
+				PRINT*, 'Error in reading b-file, status:', res
 				!// Close the file and stop the program
 				CLOSE(UNIT=lun)
 				STOP
@@ -74,17 +74,21 @@ MODULE MatSparse
 			j=INDEX(line,':')
 			!// Read everything after :
 			READ(line(j+1:),*), mat1%n
-			!// Print n
-		!	PRINT*, 'n=', mat1%n
 
 			ALLOCATE(mat1%b(mat1%n))
-			! SHOULD check if it worked!!!
-
+			IF (res/=0) THEN
+				!//Print error message
+				PRINT*, 'Error in allocating b, status:', res
+				!// Close file and stop program
+				CLOSE(UNIT=lun)
+				STOP
+			END IF
+			
 			!// Read the data in to the b-vector
 			DO i = 1,mat1%n
 				READ(UNIT=lun, FMT='(A)',IOSTAT=res), line
 				IF(res/=0) THEN
-					PRINT*, 'Error in reading file, status:', res
+					PRINT*, 'Error in reading b-file, status:', res
 					!// Close the file and stop the program
 					CLOSE(UNIT=lun)
 					STOP
@@ -96,9 +100,7 @@ MODULE MatSparse
 			END DO
 			!// Done reading file containing b-vector - close the file
 			CLOSE(UNIT=lun)
-			!// Print parts of b to check that reading has been done correctly
-		!	PRINT*, 'b=', mat1%b(1:10)
-
+			
 		! -----------------------------------------------------------------------------
 			!// Now A
 
@@ -107,7 +109,7 @@ MODULE MatSparse
 			!// Test if the file was opened correctly
 			IF (res/= 0) THEN
 				!// Print an error message
-				PRINT *, 'Error in opening the file, status:', res
+				PRINT*, 'Error in opening A-file, status:', res
 				!// Stop the program
 				STOP
 			END IF
@@ -116,7 +118,7 @@ MODULE MatSparse
 			READ(UNIT=lyn, FMT='(A)'), line
 			IF(res/=0) THEN
 				!// Print an error message
-				PRINT *, 'Error in reading A-file, status:', res
+				PRINT*, 'Error in reading A-file, status:', res
 				!// Close the file and stop the program
 				CLOSE(UNIT=lyn)
 				STOP
@@ -129,7 +131,7 @@ MODULE MatSparse
 			READ(UNIT=lyn, FMT='(A)'), line
 			IF(res/=0) THEN
 				!// Print an error message
-				PRINT *, 'Error in reading A-file, status:', res
+				PRINT*, 'Error in reading A-file, status:', res
 				!// Close the file and stop the program
 				CLOSE(UNIT=lyn)
 				STOP
@@ -138,16 +140,33 @@ MODULE MatSparse
 			j=INDEX(line,':')
 			!// Read everything after :
 			READ(line(j+1:),*), mat1%nnz
-			!// Print number of rows, n and number of non-zero values in matrix A, nnz
-		!	PRINT*, 'n=', ',', mat1%n, 'nnz=', mat1%nnz
 
 			!// Allocating space for A, irow and jcol
-			ALLOCATE(mat1%A(mat1%nnz))
-			! SHOULD check if it worked!!!
-			ALLOCATE(mat1%irow(mat1%n+1))
-			ALLOCATE(mat1%jcol(mat1%nnz))
-
-			rowvalold = 0
+			!// If allocation did not go well, close file and stop program
+			ALLOCATE(mat1%A(mat1%nnz), STAT=res)
+			IF (res/=0) THEN
+				!//Print error message
+				PRINT*, 'Error in allocating A, status:', res
+				!// Close file and stop program
+				CLOSE(UNIT=lyn)
+				STOP
+			END IF
+			ALLOCATE(mat1%irow(mat1%n+1), STAT=res)
+			IF (res/=0) THEN
+				!//Print error message
+				PRINT*, 'Error in allocating irow, status:', res
+				!// Close file and stop program
+				CLOSE(UNIT=lyn)
+				STOP
+			END IF
+			ALLOCATE(mat1%jcol(mat1%nnz), STAT=res)
+			IF (res/=0) THEN
+				!//Print error message
+				PRINT*, 'Error in allocating jcol, status:', res
+				!// Close file and stop program
+				CLOSE(UNIT=lyn)
+				STOP
+			END IF
 
 			!// Read the data in to the A-vector
 			DO i = 1,mat1%nnz
@@ -155,7 +174,7 @@ MODULE MatSparse
 				IF(res/=0) THEN
 					PRINT*, 'Error in reading A-file, status:', res
 					!// Close the file and stop the program
-					CLOSE(UNIT=lun)
+					CLOSE(UNIT=lyn)
 					STOP
 				END IF
 				!// Find position of =
@@ -186,21 +205,39 @@ MODULE MatSparse
 
 			!// Done reading file containing A-vector - close the file
 			CLOSE(UNIT=lyn)
-			!// Print parts of A, irow and jcol to check that reading has been done correctly
-		!	PRINT*, 'A=', mat1%A(1:10)
-		!	PRINT*, 'irow=', mat1%irow(1:10)
-		!	PRINT*, 'jcol=', mat1%jcol(1:10)	
+				
 			!// Print confirmation that subroutine ran successfully
 			PRINT*, 'scanfromfile completed'
-				
-			!// Allocate space for xold and xnew for both Jacobi and SOR iterations
-			ALLOCATE(mat1%xoldJac(mat1%n));mat1%xoldJac = 0.0
-			ALLOCATE(mat1%xnewJac(mat1%n));mat1%xnewJac = 0.0
-			ALLOCATE(mat1%xoldSOR(mat1%n));mat1%xoldSOR = 0.0
-			ALLOCATE(mat1%xnewSOR(mat1%n));mat1%xnewSOR = 0.0
+			
+		!---------------------------------------------------------------------------------	
+			!// Allocate space for x-vectors and check that it went well
+			!// If not -> stop program
+			ALLOCATE(mat1%xoldJac(mat1%n), STAT=res);mat1%xoldJac = 0.0
+			IF (res/=0) THEN
+				!//Print error message and stop program file
+				PRINT*, 'Error in allocating xoldJac, status:'
+				STOP
+			END IF
+			ALLOCATE(mat1%xnewJac(mat1%n), STAT=res);mat1%xnewJac = 0.0
+			IF (res/=0) THEN
+				!//Print error message and stop program file
+				PRINT*, 'Error in allocating xnewJac, status:'
+				STOP
+			END IF
+			ALLOCATE(mat1%xoldSOR(mat1%n), STAT=res);mat1%xoldSOR = 0.0
+			IF (res/=0) THEN
+				!//Print error message and stop program file
+				PRINT*, 'Error in allocating xoldSOR, status:'
+				STOP
+			END IF
+			ALLOCATE(mat1%xnewSOR(mat1%n), STAT=res);mat1%xnewSOR = 0.0
+			IF (res/=0) THEN
+				!//Print error message and stop program file
+				PRINT*, 'Error in allocating xnewSOR, status:'
+				STOP
+			END IF
 			
 		END SUBROUTINE scanfromfile
-
 ! --------------------------- NEW SUBROUTINE----------------------------------------------
 		SUBROUTINE Jacobi1iteration(mat1)
 			!//////////////////////////////////////////////////////////
@@ -215,7 +252,7 @@ MODULE MatSparse
 			CLASS(matrix)			::	mat1
 			REAL					::	sum, diagA = 0
 			INTEGER					::	i, j, k, l
-			
+			!-----------------------------------------------------------------------------
 			DO i = 1,mat1%n
 			!// Initialize sum to zero
 			sum = 0
@@ -232,14 +269,6 @@ MODULE MatSparse
 				END DO
 				mat1%xnewJac(i) = (1/diagA)*(mat1%b(i) - sum)
 			END DO
-			
-			!// Make the new x-vector the old one in case of a new iteration
-			DO l = 1,mat1%n
-				mat1%xoldJac(l) = mat1%xnewJac(l)
-			END DO
-		
-			PRINT*, 'xJac=', mat1%xoldJac(1:10)
-			PRINT*, 'Jacobi1iteration completed'
 		END SUBROUTINE Jacobi1iteration
 ! --------------------------- NEW SUBROUTINE ---------------------------------------------
 		SUBROUTINE SOR1iteration(mat1, omega)
@@ -256,7 +285,7 @@ MODULE MatSparse
 			REAL, INTENT(IN)		::	omega
 			REAL					::	diagA = 0, sum1, sum2
 			INTEGER					::	i, j, k, l
-			
+			!-----------------------------------------------------------------------------
 			DO i = 1,mat1%n
 			!// Initialize sums to zero
 			sum1 = 0
@@ -277,30 +306,101 @@ MODULE MatSparse
 				END DO
 				mat1%xnewSOR(i) = (1/diagA)*(mat1%b(i) - sum1 - sum2)
 			END DO
-
-			!// Make the new x-vector the old one in case of a new iteration
-			!// and make it go from being Gauss-Seidel to SOR
+			!// Make the transformation from Gauss-Seidel iteration to SOR iteration
 			DO l = 1,mat1%n
-				mat1%xoldSOR(l) = omega*mat1%xnewSOR(l) + (1-omega)*mat1%xoldSOR(l)
+				mat1%xnewSOR(l) = omega*mat1%xnewSOR(l) + (1-omega)*mat1%xoldSOR(l)
 			END DO
-			
-			PRINT*, 'xSOR=', mat1%xoldSOR(1:10)
-			PRINT*, 'SOR1iteration completed'
 		END SUBROUTINE SOR1iteration
 ! --------------------------- NEW SUBROUTINE ---------------------------------------------
-!		SUBROUTINE Jacobi_it(mat1, maxit, tol)
-			!/////////////////
+		SUBROUTINE Jacobi_it(mat1, tol, maxit)
+			!///////////////////////////////////////////////////////////////////
 			!//
+			!// Jacobi_it calls the Jacobi1iteration subroutine
+			!// as many times as it needs to do iterations.
+			!// It calculates the difference between new iteration
+			!// and old one to see if value is smaller than tol,
+			!// in which case the loop is exited and complete.
+			!//
+			!///////////////////////////////////////////////////////////////////
 			
-
-!		END SUBROUTINE Jacobi_it
+			CLASS(matrix)					::	mat1
+			REAL, INTENT(IN)				::	tol
+			INTEGER, INTENT(IN)				::	maxit
+			INTEGER							::	i, j, k, itsJac
+			INTEGER							::	count = 1
+			REAL							:: 	diff
+			!-----------------------------------------------------------------------------
+			DO i = 1, maxit
+				mat1%itsJac = i
+				diff = 0
+				CALL mat1%Jacobi1_it()
+				DO j = 1,mat1%n
+					diff = SQRT(diff + (mat1%xnewJac(j) - mat1%xoldJac(j))**2)
+				END DO
+				!// Make the new x-vector the old one in case of a new iteration
+				DO k = 1,mat1%n
+					mat1%xoldJac(k) = mat1%xnewJac(k)
+				END DO
+				!// If the difference between new and old iteration is less
+				!// than tol, exit the loop.
+				IF (diff<tol) THEN
+					EXIT
+				END IF
+				IF (i==count) THEN
+					PRINT*,'i=', i, 'diffJac=', diff
+					count = count + 20
+				END IF
+				IF (i>640) THEN
+					PRINT*,'i=', i, 'diffJac=', diff
+				END IF
+			END DO
+			
+			PRINT*, 'diffJac=', diff
+			PRINT*, 'xJac=', mat1%xoldJac(1:10)
+			PRINT*, 'Jacobi iterations completed:', mat1%itsJac
+		END SUBROUTINE Jacobi_it
 ! --------------------------- NEW SUBROUTINE ---------------------------------------------
-!		SUBROUTINE SOR_it(mat1, maxiter)
+		SUBROUTINE SOR_it(mat1, tol, omega, maxiter)
 			!////////////////////////////////////////////////////////////////
 			!//
+			!// SOR_it calls the SOR1iteration subroutine as 
+			!// many times as it needs to do iterations.
+			!// It calculates the difference between new iteration
+			!// and old one to see if the value is smaller than tol,
+			!// in which case the loop is exited and complete.
 			!//
+			!////////////////////////////////////////////////////////////////
 			
-!		END SUBROUTINE SOR_it
+			CLASS(matrix)					::	mat1
+			REAL, INTENT(IN)				::	tol, omega
+			INTEGER, INTENT(IN)				::	maxiter
+			INTEGER							::	i, j, k, itsSOR
+			INTEGER							::	count = 1
+			REAL							:: 	diff
+			!-----------------------------------------------------------------------------
+			DO i = 1, maxiter
+				mat1%itsSOR= i
+				diff = 0
+				CALL mat1%SOR1_it(omega)
+				DO j = 1,mat1%n
+					diff = diff + (mat1%xnewSOR(j) - mat1%xoldSOR(j))**2
+				END DO
+				diff = SQRT(diff)
+				!// Make the new x-vector the old one in case of a new iteration
+				DO k = 1,mat1%n
+					mat1%xoldSOR(k) = mat1%xnewSOR(k)
+				END DO
+				!// If the difference between new and old iteration is less
+				!// than tol, exit the loop.
+				IF (diff<tol) THEN
+					EXIT
+				END IF
+			END DO
+			
+			PRINT*, 'diffSOR=', diff
+			PRINT*, 'xSOR=', mat1%xoldSOR(1:10)
+			PRINT*, 'SOR iterations completed:', mat1%itsSOR			
+		END SUBROUTINE SOR_it
 ! --------------------------- NEW SUBROUTINE ---------------------------------------------
 		SUBROUTINE dumptofile(mat1, xvector, tol, omega, maxit, maxiter)
 			!//////////////////////////////////////////////////////////////////////
@@ -310,14 +410,13 @@ MODULE MatSparse
 			!//////////////////////////////////////////////////////////////////////
 			CLASS(matrix)					::	mat1
 			CHARACTER(LEN=80), INTENT(IN)	::	xvector	!filename
-			!CHARACTER(LEN=80)				::	toltext, omegatext, maxittext, maxitertext
-			CHARACTER(LEN=80), DIMENSION(6)	::	text
+			CHARACTER(LEN=80), DIMENSION(8)	::	text	!array with text for file
 			REAL, INTENT(IN)				::	tol, omega
-			REAL(KIND=8), DIMENSION(6)		::	invars
+			REAL(KIND=8), DIMENSION(8)		::	invars	!array with values for file
 			INTEGER, INTENT(IN)				::	maxit, maxiter
-			INTEGER							::	i, j, k, l
+			INTEGER							::	i, j
 			INTEGER							::	olun = 12, res
-			
+			!-----------------------------------------------------------------------------
 			OPEN(UNIT=olun, FILE=xvector, FORM='FORMATTED', IOSTAT=res)
 			!// Check if the file was opened correctly
 			IF (res/=0) THEN
@@ -332,21 +431,24 @@ MODULE MatSparse
 			text(2) = 'value used for the constant omega:'
 			text(3) = 'maximum number of Jacobi iterations:'
 			text(4) = 'maximum number of SOR iterations:'
-			text(5) = 'n:'
-			text(6) = 'nnz:'
+			text(5) = 'number of Jacobi iterations, itsJac:'
+			text(6) = 'number of SOR iterations, itsSOR:'
+			text(7) = 'number of rows, length of b, n:'
+			text(8) = 'number of non-zero values, length of A, nnz:'
 			
-			!// Array containing tol, omega, maxit and maxiter
-			PRINT*, tol, omega, maxit, maxiter
+			!// Array containing tol, omega, maxit, maxiter, itsJac, itsSOR, n and nnz
 			invars(1) = tol
 			invars(2) = omega
 			invars(3) = maxit
 			invars(4) = maxiter
-			invars(5) = mat1%n
-			invars(6) = mat1%nnz
+			invars(5) = mat1%itsJac
+			invars(6) = mat1%itsSOR
+			invars(7) = mat1%n
+			invars(8) = mat1%nnz
 			
 			!// Write tol, omega and number of maximum iterations for Jacobi and SOR
 			DO i = 1, size(invars)
-				WRITE(UNIT=olun, FMT='(A37, 4X, F10.5)', IOSTAT=res) &
+				WRITE(UNIT=olun, FMT='(A45, 4X, F10.5)', IOSTAT=res) &
 					TRIM(text(i)), invars(i)
 				!// Check if writing went well
 				IF (res/=0) THEN
