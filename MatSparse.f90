@@ -21,16 +21,16 @@ MODULE MatSparse
 			INTEGER					::	itsJac = 0, itsSOR = 0, n = 0, nnz = 0
 			INTEGER					::	maxit, maxiter
 		CONTAINS
-			PROCEDURE				:: scan => scanfromfile
-			PROCEDURE				:: dump => dumptofile
-			PROCEDURE				:: Jacobi1_it => Jacobi1iteration
-			PROCEDURE				:: SOR1_it => SOR1iteration
-			PROCEDURE				:: Jacobi => Jacobi_it
-			PROCEDURE				:: SOR => SOR_it
+			PROCEDURE				::	scan => scanfromfile
+			PROCEDURE				::	dump => dumptofile
+			PROCEDURE				::	Jacobi1_it => Jacobi1iteration
+			PROCEDURE				::	SOR1_it => SOR1iteration
+			PROCEDURE				::	Jacobi => Jacobi_it
+			PROCEDURE				::	SOR => SOR_it
 		END TYPE matrix
 	CONTAINS
 		SUBROUTINE scanfromfile(mat1,Avector,bvector)
-			!/////////////////////////////////////////////////////////////
+			!////////////////////////////////////////////////////////////////
 			!//
 			!// scanfromfile reads files assigned in the main program
 			!// to find n, nnz, A and b. The routine also provides irow
@@ -38,7 +38,7 @@ MODULE MatSparse
 			!// Space for xvectors needed in Jacobi and SOR iterations
 			!// is allocated.
 			!//
-			!/////////////////////////////////////////////////////////////
+			!////////////////////////////////////////////////////////////////
 			IMPLICIT NONE
 			CLASS(matrix)					::	mat1
 			CHARACTER(LEN=80), INTENT(IN)	::	Avector, bvector !filenames
@@ -100,7 +100,6 @@ MODULE MatSparse
 			END DO
 			!// Done reading file containing b-vector - close the file
 			CLOSE(UNIT=lun)
-			
 		! -----------------------------------------------------------------------------
 			!// Now A
 
@@ -208,7 +207,6 @@ MODULE MatSparse
 				
 			!// Print confirmation that subroutine ran successfully
 			PRINT*, 'scanfromfile completed'
-			
 		!---------------------------------------------------------------------------------	
 			!// Allocate space for x-vectors and check that it went well
 			!// If not -> stop program
@@ -236,7 +234,6 @@ MODULE MatSparse
 				PRINT*, 'Error in allocating xnewSOR, status:'
 				STOP
 			END IF
-			
 		END SUBROUTINE scanfromfile
 ! --------------------------- NEW SUBROUTINE----------------------------------------------
 		SUBROUTINE Jacobi1iteration(mat1)
@@ -315,19 +312,18 @@ MODULE MatSparse
 		SUBROUTINE Jacobi_it(mat1, tol, maxit)
 			!///////////////////////////////////////////////////////////////////
 			!//
-			!// Jacobi_it calls the Jacobi1iteration subroutine
-			!// as many times as it needs to do iterations.
-			!// It calculates the difference between new iteration
-			!// and old one to see if value is smaller than tol,
-			!// in which case the loop is exited and complete.
+			!// Jacobi_it calls the Jacobi1iteration subroutine as many times
+			!// as it needs needs to do iterations. It calculates the 
+			!// difference between the new iteration and old one to see if
+			!// it is smaller than the tolerance convergence limit, in which 
+			!// case the loop is exited and iterations done.
 			!//
 			!///////////////////////////////////////////////////////////////////
-			
+			IMPLICIT NONE			
 			CLASS(matrix)					::	mat1
 			REAL, INTENT(IN)				::	tol
 			INTEGER, INTENT(IN)				::	maxit
-			INTEGER							::	i, j, k, itsJac
-			INTEGER							::	count = 1
+			INTEGER							::	i, j, k
 			REAL							:: 	diff
 			!-----------------------------------------------------------------------------
 			DO i = 1, maxit
@@ -335,8 +331,9 @@ MODULE MatSparse
 				diff = 0
 				CALL mat1%Jacobi1_it()
 				DO j = 1,mat1%n
-					diff = SQRT(diff + (mat1%xnewJac(j) - mat1%xoldJac(j))**2)
+					diff = diff + (mat1%xnewJac(j) - mat1%xoldJac(j))**2
 				END DO
+				diff = SQRT(diff)
 				!// Make the new x-vector the old one in case of a new iteration
 				DO k = 1,mat1%n
 					mat1%xoldJac(k) = mat1%xnewJac(k)
@@ -346,36 +343,26 @@ MODULE MatSparse
 				IF (diff<tol) THEN
 					EXIT
 				END IF
-				IF (i==count) THEN
-					PRINT*,'i=', i, 'diffJac=', diff
-					count = count + 20
-				END IF
-				IF (i>640) THEN
-					PRINT*,'i=', i, 'diffJac=', diff
-				END IF
 			END DO
-			
-			PRINT*, 'diffJac=', diff
-			PRINT*, 'xJac=', mat1%xoldJac(1:10)
+
 			PRINT*, 'Jacobi iterations completed:', mat1%itsJac
 		END SUBROUTINE Jacobi_it
 ! --------------------------- NEW SUBROUTINE ---------------------------------------------
 		SUBROUTINE SOR_it(mat1, tol, omega, maxiter)
 			!////////////////////////////////////////////////////////////////
 			!//
-			!// SOR_it calls the SOR1iteration subroutine as 
-			!// many times as it needs to do iterations.
-			!// It calculates the difference between new iteration
-			!// and old one to see if the value is smaller than tol,
-			!// in which case the loop is exited and complete.
+			!// SOR_it calls the SOR1iteration subroutine as many times as
+			!// it needs to do iterations. It calculates the difference 
+			!// between the new iteration and the old one to see if it is
+			!// smaller than the tolerance convergence limit, in which
+			!// case the loop is exited and iterations done.
 			!//
 			!////////////////////////////////////////////////////////////////
-			
+			IMPLICIT NONE
 			CLASS(matrix)					::	mat1
 			REAL, INTENT(IN)				::	tol, omega
 			INTEGER, INTENT(IN)				::	maxiter
-			INTEGER							::	i, j, k, itsSOR
-			INTEGER							::	count = 1
+			INTEGER							::	i, j, k
 			REAL							:: 	diff
 			!-----------------------------------------------------------------------------
 			DO i = 1, maxiter
@@ -397,17 +384,21 @@ MODULE MatSparse
 				END IF
 			END DO
 			
-			PRINT*, 'diffSOR=', diff
-			PRINT*, 'xSOR=', mat1%xoldSOR(1:10)
 			PRINT*, 'SOR iterations completed:', mat1%itsSOR			
 		END SUBROUTINE SOR_it
 ! --------------------------- NEW SUBROUTINE ---------------------------------------------
 		SUBROUTINE dumptofile(mat1, xvector, tol, omega, maxit, maxiter)
 			!//////////////////////////////////////////////////////////////////////
 			!//
-			!// dumptofile writes the xvectors to a file with appropriate headers.
+			!// dumptofile writes the tolerance convergence limit, the constant
+			!// omega, the maximum number of Jacobi iterations, the maximum
+			!// number of SOR iterations, the actual number of Jacobi iterations,
+			!// the actual number of SOR iterations, the number of rows and 
+			!// columns and the number of non-zero values in the nxn matrix and
+			!// the xvectors with appropriate headers to a file.
 			!//
 			!//////////////////////////////////////////////////////////////////////
+			IMPLICIT NONE
 			CLASS(matrix)					::	mat1
 			CHARACTER(LEN=80), INTENT(IN)	::	xvector	!filename
 			CHARACTER(LEN=80), DIMENSION(8)	::	text	!array with text for file
@@ -485,10 +476,8 @@ MODULE MatSparse
 				END IF
 			END DO
 			
-			!// Done writing x to file, close the file
+			!// Done writing x to file, print confirmation and close the file
+			PRINT*, 'x for Jacobi and SOR successfully dumped'
 			CLOSE(UNIT=olun)
-			PRINT*, 'Successfully dumped x'
-			PRINT*, 'filename=', TRIM(xvector)
 		END SUBROUTINE dumptofile
 END MODULE MatSparse
-
