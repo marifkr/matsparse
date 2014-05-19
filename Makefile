@@ -19,7 +19,7 @@ OBJECTS = MatSparse.o main.o
 #
 kjor : $(OBJECTS)
 	$(FC) $(FFLAGS) -o $@ $(OBJECTS)
-	./kjor A-ascii.txt b-vector-ascii.txt
+	./kjor A-ascii.txt b-vector-ascii.txt x-vector.txt
 MatSparse.o : MatSparse.f90
 	$(FC) $(FFLAGS) -c $?
 
@@ -30,3 +30,4 @@ clean :
 	rm -f *.o
 	rm -r *.mod
 	rm -f kjor
+	rm -f x-vector.txt

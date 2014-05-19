@@ -6,24 +6,25 @@
 !//   and a vector b, and reading A and b.
 !//	- performing Jacobi and SOR iterations to find
 !//   the x-vector in Ax=b.
-!// - dumping the x-vector to a file.
+!// - dumping the x-vector to a file for both Jacobi and
+!//   SOR iterations.
 !//
 !////////////////////////////////////////////////////////////
 MODULE MatSparse
 	IMPLICIT NONE
 		TYPE	::	matrix
-			CHARACTER(LEN=80)		::	Avector, bvector, xvector !filenames
+!			CHARACTER(LEN=80)		::	Avector, bvector, xvector !filenames
 			REAL(KIND=8), POINTER	::	A(:) => null(), b(:) => null()
 			REAL(KIND=8), POINTER	::	xoldJac(:) => null(), xnewJac(:) => null()
 			REAL(KIND=8), POINTER	::	xoldSOR(:) => null(), xnewSOR(:) => null()
-			REAL					::	omega
+			REAL					::	tol, omega
 			INTEGER, POINTER		::	irow(:) => null(), jcol(:) => null()
-			INTEGER					::	n = 0
-			INTEGER					::	nnz = 0
+			INTEGER					::	n = 0, nnz = 0
+			INTEGER					::	maxit, maxiter
 			!// More variables here for x-vectors and other I might need
 		CONTAINS
 			PROCEDURE				:: scan => scanfromfile
-!			PROCEDURE				:: dump => dumptofile
+			PROCEDURE				:: dump => dumptofile
 			PROCEDURE				:: Jacobi1_it => Jacobi1iteration
 			PROCEDURE				:: SOR1_it => SOR1iteration
 !			PROCEDURE				:: Jacobi => Jacobi_it
@@ -56,7 +57,7 @@ MODULE MatSparse
 			!// Test if the file was opened correctly
 			IF (res/= 0) THEN
 				!// Print an error message
-				PRINT *, 'Error in opening the file, status:', res
+				PRINT *, 'Error in opening the b-vector file, status:', res
 				!// Stop the program
 				STOP
 			END IF
@@ -115,7 +116,7 @@ MODULE MatSparse
 			READ(UNIT=lyn, FMT='(A)'), line
 			IF(res/=0) THEN
 				!// Print an error message
-				PRINT *, 'Error in reading file, status:', res
+				PRINT *, 'Error in reading A-file, status:', res
 				!// Close the file and stop the program
 				CLOSE(UNIT=lyn)
 				STOP
@@ -128,7 +129,7 @@ MODULE MatSparse
 			READ(UNIT=lyn, FMT='(A)'), line
 			IF(res/=0) THEN
 				!// Print an error message
-				PRINT *, 'Error in reading file, status:', res
+				PRINT *, 'Error in reading A-file, status:', res
 				!// Close the file and stop the program
 				CLOSE(UNIT=lyn)
 				STOP
@@ -146,14 +147,13 @@ MODULE MatSparse
 			ALLOCATE(mat1%irow(mat1%n+1))
 			ALLOCATE(mat1%jcol(mat1%nnz))
 
-
 			rowvalold = 0
 
 			!// Read the data in to the A-vector
 			DO i = 1,mat1%nnz
 				READ(UNIT=lyn, FMT='(A)',IOSTAT=res), line
 				IF(res/=0) THEN
-					PRINT*, 'Error in reading file, status:', res
+					PRINT*, 'Error in reading A-file, status:', res
 					!// Close the file and stop the program
 					CLOSE(UNIT=lun)
 					STOP
@@ -190,7 +190,7 @@ MODULE MatSparse
 		!	PRINT*, 'A=', mat1%A(1:10)
 		!	PRINT*, 'irow=', mat1%irow(1:10)
 		!	PRINT*, 'jcol=', mat1%jcol(1:10)	
-			!// Print confirmation that program ran successfully
+			!// Print confirmation that subroutine ran successfully
 			PRINT*, 'scanfromfile completed'
 				
 			!// Allocate space for xold and xnew for both Jacobi and SOR iterations
@@ -302,18 +302,91 @@ MODULE MatSparse
 			
 !		END SUBROUTINE SOR_it
 ! --------------------------- NEW SUBROUTINE ---------------------------------------------
-		SUBROUTINE dumptofile(mat1, xvector)
+		SUBROUTINE dumptofile(mat1, xvector, tol, omega, maxit, maxiter)
 			!//////////////////////////////////////////////////////////////////////
 			!//
 			!// dumptofile writes the xvectors to a file with appropriate headers.
 			!//
 			!//////////////////////////////////////////////////////////////////////
-			CLASS(matrix)			::	mat1
-			CHARACTER, INTENT(IN)	::	xvector	!filename
-			INTEGER					::	i, j, k, l
+			CLASS(matrix)					::	mat1
+			CHARACTER(LEN=80), INTENT(IN)	::	xvector	!filename
+			!CHARACTER(LEN=80)				::	toltext, omegatext, maxittext, maxitertext
+			CHARACTER(LEN=80), DIMENSION(6)	::	text
+			REAL, INTENT(IN)				::	tol, omega
+			REAL(KIND=8), DIMENSION(6)		::	invars
+			INTEGER, INTENT(IN)				::	maxit, maxiter
+			INTEGER							::	i, j, k, l
+			INTEGER							::	olun = 12, res
 			
+			OPEN(UNIT=olun, FILE=xvector, FORM='FORMATTED', IOSTAT=res)
+			!// Check if the file was opened correctly
+			IF (res/=0) THEN
+				!// Print an error message and stop program
+				PRINT*, 'Error in opening outfile for x-vector, status:', res
+				STOP
+			END IF
 			
-						
+			!// Make arrays for shorter writing code
+			!// Array containing strings for value identification
+			text(1) = 'tolerance convergence limit:'
+			text(2) = 'value used for the constant omega:'
+			text(3) = 'maximum number of Jacobi iterations:'
+			text(4) = 'maximum number of SOR iterations:'
+			text(5) = 'n:'
+			text(6) = 'nnz:'
+			
+			!// Array containing tol, omega, maxit and maxiter
+			PRINT*, tol, omega, maxit, maxiter
+			invars(1) = tol
+			invars(2) = omega
+			invars(3) = maxit
+			invars(4) = maxiter
+			invars(5) = mat1%n
+			invars(6) = mat1%nnz
+			
+			!// Write tol, omega and number of maximum iterations for Jacobi and SOR
+			DO i = 1, size(invars)
+				WRITE(UNIT=olun, FMT='(A37, 4X, F10.5)', IOSTAT=res) &
+					TRIM(text(i)), invars(i)
+				!// Check if writing went well
+				IF (res/=0) THEN
+					!// Print error message
+					PRINT*, 'Error in writing file, status:', res
+					!// Close the file and stop the program
+					CLOSE(UNIT=olun)
+					STOP
+				END IF
+			END DO
+			
+			!// Write headers for x from Jacobi and SOR iterations respectively
+			WRITE(UNIT=olun, FMT='(A)', IOSTAT=res) &
+				'x from Jacobi      x from SOR'
+			!// Check if writing went well
+			IF (res/=0) THEN
+				!// Print error message
+				PRINT*, 'Error in writing x, status:', res
+				!// Close the file and stop the program
+				CLOSE(UNIT=olun)
+				STOP
+			END IF
+			
+			DO j = 1, mat1%n
+				WRITE(UNIT=olun, FMT='(A2,I3,A2,F9.4,3X,A2,I3,A2,F9.4)', IOSTAT=res) &
+					'x(' , j, ')=', mat1%xoldJac(j), 'x(', j, ')=', mat1%xoldSOR(j)
+				!// Check if writing went well
+				IF (res/=0) THEN
+					!// Print error message
+					PRINT*, 'Error in writing x to file, status:', res
+					!// Close the file and stop the program
+					CLOSE(UNIT=olun)
+					STOP
+				END IF
+			END DO
+			
+			!// Done writing x to file, close the file
+			CLOSE(UNIT=olun)
+			PRINT*, 'Successfully dumped x'
+			PRINT*, 'filename=', TRIM(xvector)
 		END SUBROUTINE dumptofile
 END MODULE MatSparse
 
